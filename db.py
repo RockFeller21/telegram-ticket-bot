@@ -1,55 +1,94 @@
 import aiosqlite
+from datetime import datetime
 
-DB_NAME = 'mailings.db'
+class Database:
+    def __init__(self, path="appeals.db"):
+        self.path = path
 
-async def init_db():
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS mailings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                text TEXT,
-                interval REAL,
-                channel_id INTEGER,
-                enabled INTEGER DEFAULT 1,
-                last_sent REAL DEFAULT 0
+    async def init(self):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS appeals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    text TEXT,
+                    status TEXT,
+                    created_at TEXT
+                )
+            ''')
+            await db.execute('''
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    appeal_id INTEGER,
+                    sender TEXT,
+                    text TEXT,
+                    created_at TEXT
+                )
+            ''')
+            await db.commit()
+
+    async def create_appeal(self, user_id, text):
+        now = datetime.now().isoformat()
+        async with aiosqlite.connect(self.path) as db:
+            cursor = await db.execute(
+                "INSERT INTO appeals (user_id, text, status, created_at) VALUES (?, ?, 'active', ?)",
+                (user_id, text, now)
             )
-        ''')
-        await db.commit()
+            appeal_id = cursor.lastrowid
+            await db.execute(
+                "INSERT INTO messages (appeal_id, sender, text, created_at) VALUES (?, 'user', ?, ?)",
+                (appeal_id, text, now)
+            )
+            await db.commit()
+            return appeal_id
 
-async def add_mailing(text, interval, channel_id):
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            'INSERT INTO mailings (text, interval, channel_id) VALUES (?, ?, ?)',
-            (text, interval, channel_id)
-        )
-        await db.commit()
-
-async def get_mailings():
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute('SELECT * FROM mailings') as cursor:
+    async def get_active_appeals(self, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cursor = await db.execute(
+                "SELECT * FROM appeals WHERE user_id=? AND status='active'", (user_id,)
+            )
             return await cursor.fetchall()
 
-async def get_mailing(mailing_id):
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute('SELECT * FROM mailings WHERE id=?', (mailing_id,)) as cursor:
+    async def get_closed_appeals(self, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cursor = await db.execute(
+                "SELECT * FROM appeals WHERE user_id=? AND status='closed'", (user_id,)
+            )
+            return await cursor.fetchall()
+
+    async def get_appeal(self, appeal_id):
+        async with aiosqlite.connect(self.path) as db:
+            cursor = await db.execute(
+                "SELECT * FROM appeals WHERE id=?", (appeal_id,)
+            )
             return await cursor.fetchone()
 
-async def update_mailing(mailing_id, text=None, interval=None, enabled=None):
-    async with aiosqlite.connect(DB_NAME) as db:
-        if text is not None:
-            await db.execute('UPDATE mailings SET text=? WHERE id=?', (text, mailing_id))
-        if interval is not None:
-            await db.execute('UPDATE mailings SET interval=? WHERE id=?', (interval, mailing_id))
-        if enabled is not None:
-            await db.execute('UPDATE mailings SET enabled=? WHERE id=?', (enabled, mailing_id))
-        await db.commit()
+    async def close_appeal(self, appeal_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE appeals SET status='closed' WHERE id=?", (appeal_id,)
+            )
+            await db.commit()
 
-async def delete_mailing(mailing_id):
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute('DELETE FROM mailings WHERE id=?', (mailing_id,))
-        await db.commit()
+    async def add_message(self, appeal_id, sender, text):
+        now = datetime.now().isoformat()
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "INSERT INTO messages (appeal_id, sender, text, created_at) VALUES (?, ?, ?, ?)",
+                (appeal_id, sender, text, now)
+            )
+            await db.commit()
 
-async def update_last_sent(mailing_id, timestamp):
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute('UPDATE mailings SET last_sent=? WHERE id=?', (timestamp, mailing_id))
-        await db.commit()
+    async def get_messages(self, appeal_id):
+        async with aiosqlite.connect(self.path) as db:
+            cursor = await db.execute(
+                "SELECT * FROM messages WHERE appeal_id=? ORDER BY id", (appeal_id,)
+            )
+            return await cursor.fetchall()
+
+    async def get_all_active_appeals(self):
+        async with aiosqlite.connect(self.path) as db:
+            cursor = await db.execute(
+                "SELECT * FROM appeals WHERE status='active'"
+            )
+            return await cursor.fetchall()
