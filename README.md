@@ -55,12 +55,6 @@ All texts and buttons can be changed in `user_handlers.py`, `admin_handlers.py`,
 
 ---
 
-## License
-
-MIT
-
----
-
 ## 🇷🇺 Русский
 
 ## Возможности
